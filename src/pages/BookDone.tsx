@@ -37,7 +37,7 @@ export default function BookDone() {
         ) : !info ? <p className="text-ink/60">Checking your booking</p> : (
           <>
             <span className="flex h-14 w-14 items-center justify-center rounded-full bg-sea-600 text-white"><Check size={28} /></span>
-            <h1 className="mt-6 text-4xl font-bold tracking-[-0.03em]">You're booked in</h1>
+            <h1 className="mt-6 text-4xl font-bold tracking-[-0.03em]">{info.status === "cancelled" ? "This booking was cancelled" : "You're booked in"}</h1>
             <p className="mt-3 text-lg text-ink/70">Reference <b className="text-ink">{info.ref}</b></p>
             <dl className="mt-8 divide-y divide-sand-200 border-y border-sand-200 text-lg">
               <div className="flex justify-between gap-4 py-3"><dt className="text-ink/60">When</dt><dd className="text-right">{when}</dd></div>
@@ -45,7 +45,7 @@ export default function BookDone() {
               <div className="flex justify-between gap-4 py-3"><dt className="text-ink/60">Price</dt><dd className="tnum font-semibold">{formatTHB(info.total)}</dd></div>
               <div className="flex justify-between gap-4 py-3"><dt className="text-ink/60">Payment</dt><dd>{paid ? "Paid, thank you" : cancelled ? "Not paid yet" : "Confirming payment"}</dd></div>
             </dl>
-            {cancelled && !paid && (
+            {cancelled && !paid && info.status !== "cancelled" && (
               <p className="mt-6 rounded-lg bg-sun/40 p-4">Your time is still booked. You can pay your cleaner in cash on the day, or message us for a payment link.</p>
             )}
             <Link to="/" className="btn-ghost mt-8">Back to the home page</Link>
