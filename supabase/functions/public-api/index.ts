@@ -3,7 +3,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { computeQuote, formatDuration, formatTHB, type AddonDef, type Anchor, type Condition, type Frequency, type PricingSettings } from "./pricing.ts";
-import { calendarUpsert, customerEmail, env, sendEmail, JOB_SELECT, jobText, notifyTeam, type JobRow, type NotifySettings } from "../_shared/notify.ts";
+import { calendarUpsert, customerEmail, env, sendEmail, JOB_SELECT, jobText, notifyTeam, type JobRow, type NotifySettings } from "./notify.ts";
 import { availability, bangkokDate, bangkokTime, isStaffFree, pickLeastBusy, seriesDates, slotsForDate, type BusyJob, type SchedulingSettings, type StaffAvail } from "./slots.ts";
 
 const db = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, { auth: { persistSession: false } });

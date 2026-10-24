@@ -8,7 +8,7 @@
     "build": "tsc -b && vite build",
     "lint": "oxlint",
     "preview": "vite preview",
-    "sync": "cp src/lib/pricing.ts src/lib/slots.ts supabase/functions/public-api/",
+    "sync": "cp src/lib/pricing.ts src/lib/slots.ts supabase/functions/public-api/ && cp supabase/functions/_shared/notify.ts supabase/functions/public-api/ && cp supabase/functions/_shared/notify.ts supabase/functions/ops/",
     "test": "vitest run"
   },
   "dependencies": {

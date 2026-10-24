@@ -7,7 +7,7 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 import {
   calendarDelete, calendarUpsert, customerEmail, env, fmtWhen, JOB_SELECT, jobText, linePush, notifyTeam, sendEmail,
   type JobRow, type NotifySettings,
-} from "../_shared/notify.ts";
+} from "./notify.ts";
 
 const db = createClient(env("SUPABASE_URL"), env("SUPABASE_SERVICE_ROLE_KEY"), { auth: { persistSession: false } });
 const CORS = {
