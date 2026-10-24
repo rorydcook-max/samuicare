@@ -403,7 +403,7 @@ function StepSlot({ f, set, minutes }: StepProps & { minutes: number }) {
 
   return (
     <div className="space-y-6">
-      <p className="flex items-center gap-2 text-sm text-ink/70"><Clock size={16} className="text-sea-600" /> Your clean takes about <b>{formatDuration(minutes)}</b>. Times shown are start times.</p>
+      <p className="text-sm text-ink/70"><Clock size={16} className="-mt-0.5 mr-1.5 inline text-sea-600" />Your clean takes about <b>{formatDuration(minutes)}</b>. Times shown are start times.</p>
       <div className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-2 sm:mx-0 sm:flex-wrap sm:px-0">
         {open.slice(0, 21).map((d) => {
           const dt = new Date(d.date + "T00:00:00");
