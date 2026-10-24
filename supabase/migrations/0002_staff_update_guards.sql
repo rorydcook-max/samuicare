@@ -1,0 +1,3 @@
+-- Applied to project tqeylnllbmptwzyelqkn on 2026-10-24.
+-- Staff may only edit their own availability/contact fields, and only change status / cash collected / notes on their own jobs.
+-- (See guard_staff_self_update and guard_booking_staff_update in the database.)

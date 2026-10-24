@@ -6,7 +6,7 @@ import {
 } from "lucide-react";
 import { useConfig } from "../components/ui";
 import { computeQuote, formatDuration, formatTHB, type Condition, type Frequency } from "../lib/pricing";
-import { createBooking, getAvailability, saveLead, submitRequest, supabase, type BookingResult } from "../lib/api";
+import { createBooking, DEMO, getAvailability, saveLead, submitRequest, uploadPhoto, type BookingResult } from "../lib/api";
 import type { DaySlots, Slot } from "../lib/slots";
 
 /* ------------------------------ form state -------------------------------- */
@@ -65,7 +65,17 @@ const STEP_TITLES: Record<StepId, string> = {
 export default function Book() {
   const cfg = useConfig();
   const [params] = useSearchParams();
-  const [f, setF] = useState<FormState>(() => ({ ...INITIAL, propertyType: params.get("type") === "commercial" ? "commercial" : null }));
+  const [f, setF] = useState<FormState>(() => {
+    const n = (k: string, d: number) => Math.min(12, Math.max(1, Number(params.get(k)) || d));
+    const c = params.get("condition");
+    return {
+      ...INITIAL,
+      propertyType: params.get("type") === "commercial" ? "commercial" : null,
+      bedrooms: n("beds", INITIAL.bedrooms),
+      bathrooms: n("baths", INITIAL.bathrooms),
+      condition: c === "regular" || c === "lived_in" || c === "heavy" ? c : null,
+    };
+  });
   const [stepIdx, setStepIdx] = useState(0);
   const [leadId, setLeadId] = useState<string | null>(null);
   const [done, setDone] = useState<BookingResult | "request" | null>(null);
@@ -160,13 +170,13 @@ export default function Book() {
           <span className="font-semibold text-sea-700">Step {stepIdx + 1} of {steps.length}</span>
           <Link to="/" className="text-ink/60 hover:text-ink">Cancel</Link>
         </div>
-        <div className="h-2 overflow-hidden rounded-full bg-sand-100">
+        <div className="h-1.5 overflow-hidden rounded-full bg-sand-200">
           <div className="h-full rounded-full bg-sea-600 transition-all duration-500" style={{ width: `${progress}%` }} />
         </div>
 
         <div className="mt-8 grid grid-cols-1 gap-8 lg:grid-cols-[1fr_320px]">
           <div className="min-w-0">
-            <h1 className="text-3xl font-semibold text-sea-950 sm:text-4xl">{STEP_TITLES[step]}</h1>
+            <h1 className="text-3xl font-bold tracking-[-0.03em] sm:text-4xl">{STEP_TITLES[step]}</h1>
             <div className="mt-6">
               {step === "type" && <StepType f={f} set={set} />}
               {step === "commercial" && <StepCommercial f={f} set={set} />}
@@ -180,7 +190,7 @@ export default function Book() {
               {step === "review" && <StepReview f={f} set={set} isCustom={isCustom} quote={quote} areaName={area?.name} />}
             </div>
 
-            {error && <p className="mt-6 rounded-2xl bg-red-50 p-4 text-sm text-red-700">{error}</p>}
+            {error && <p className="mt-6 rounded-lg bg-red-50 p-4 text-sm text-red-700">{error}</p>}
 
             <div className="mt-8 flex items-center gap-3">
               {stepIdx > 0 && <button className="btn-ghost" onClick={back}><ArrowLeft size={18} /> Back</button>}
@@ -257,9 +267,9 @@ function Counter({ label, value, onChange, min = 1, max = 12 }: { label: string;
     <div className="card flex items-center justify-between p-5">
       <span className="text-lg font-semibold">{label}</span>
       <div className="flex items-center gap-4">
-        <button type="button" aria-label={`Fewer ${label}`} className="flex h-11 w-11 items-center justify-center rounded-full border-2 border-sand-200 hover:border-sea-400 disabled:opacity-30" disabled={value <= min} onClick={() => onChange(value - 1)}><Minus size={18} /></button>
+        <button type="button" aria-label={`Fewer ${label}`} className="flex h-11 w-11 items-center justify-center rounded-full border border-sand-300 hover:border-sea-400 disabled:opacity-30" disabled={value <= min} onClick={() => onChange(value - 1)}><Minus size={18} /></button>
         <span className="w-8 text-center text-2xl font-semibold tabular-nums">{value}</span>
-        <button type="button" aria-label={`More ${label}`} className="flex h-11 w-11 items-center justify-center rounded-full border-2 border-sand-200 hover:border-sea-400 disabled:opacity-30" disabled={value >= max} onClick={() => onChange(value + 1)}><Plus size={18} /></button>
+        <button type="button" aria-label={`More ${label}`} className="flex h-11 w-11 items-center justify-center rounded-full border border-sand-300 hover:border-sea-400 disabled:opacity-30" disabled={value >= max} onClick={() => onChange(value + 1)}><Plus size={18} /></button>
       </div>
     </div>
   );
@@ -305,7 +315,7 @@ function StepCondition({ f, set }: StepProps) {
 
 function PhotoUpload({ f, set }: StepProps) {
   const [busy, setBusy] = useState(false);
-  if (!supabase) return null;
+  if (DEMO) return null;
   return (
     <div>
       <span className="label">Photos (optional)</span>
@@ -318,9 +328,8 @@ function PhotoUpload({ f, set }: StepProps) {
           setBusy(true);
           const paths: string[] = [];
           for (const file of files) {
-            const path = `quotes/${crypto.randomUUID()}-${file.name.replace(/[^\w.-]/g, "_")}`;
-            const { error } = await supabase!.storage.from("uploads").upload(path, file);
-            if (!error) paths.push(path);
+            const path = await uploadPhoto(file);
+            if (path) paths.push(path);
           }
           set("photos", [...f.photos, ...paths]);
           setBusy(false);
@@ -349,7 +358,7 @@ function StepFrequency({ f, set, discounts }: StepProps & { discounts: Record<Fr
     <div className="grid gap-3 sm:grid-cols-2">
       {opts.map(([v, t, s]) => (
         <Choice key={v} on={f.frequency === v} onClick={() => set("frequency", v)} title={t} sub={s}
-          right={discounts[v] ? <span className="rounded-full bg-coral/15 px-2.5 py-1 text-xs font-bold text-coral">{discounts[v]}% off</span> : undefined} />
+          right={discounts[v] ? <span className="rounded bg-sun px-2 py-0.5 text-xs font-bold text-ink">{discounts[v]}% off</span> : undefined} />
       ))}
     </div>
   );
@@ -395,7 +404,7 @@ function StepSlot({ f, set, minutes }: StepProps & { minutes: number }) {
     return () => { live = false; };
   }, [minutes]);
 
-  if (err) return <p className="rounded-2xl bg-red-50 p-4 text-sm text-red-700">Couldn't load availability: {err}</p>;
+  if (err) return <p className="rounded-lg bg-red-50 p-4 text-sm text-red-700">Couldn't load availability: {err}</p>;
   if (!days) return <div className="flex items-center gap-2 text-ink/60"><Loader2 className="animate-spin" size={18} /> Checking availability…</div>;
   const open = days.filter((d) => d.slots.length);
   if (!open.length) return <p className="card p-5">We're fully booked for now — message us on LINE or WhatsApp and we'll fit you in.</p>;
@@ -409,7 +418,7 @@ function StepSlot({ f, set, minutes }: StepProps & { minutes: number }) {
           const dt = new Date(d.date + "T00:00:00");
           const on = d.date === date;
           return (
-            <button key={d.date} onClick={() => setDate(d.date)} className={`flex w-16 shrink-0 flex-col items-center rounded-2xl border-2 py-3 transition ${on ? "border-sea-600 bg-sea-600 text-white" : "border-sand-200 bg-white hover:border-sea-300"}`}>
+            <button key={d.date} onClick={() => setDate(d.date)} className={`flex w-16 shrink-0 flex-col items-center rounded-lg border-2 py-3 transition ${on ? "border-sea-600 bg-sea-600 text-white" : "border-sand-200 bg-white hover:border-sea-300"}`}>
               <span className="text-xs font-semibold uppercase">{dt.toLocaleDateString("en-GB", { weekday: "short" })}</span>
               <span className="text-xl font-semibold">{dt.getDate()}</span>
               <span className="text-xs">{dt.toLocaleDateString("en-GB", { month: "short" })}</span>
@@ -422,7 +431,7 @@ function StepSlot({ f, set, minutes }: StepProps & { minutes: number }) {
           {selected.slots.map((s) => {
             const on = f.slot?.startAt === s.startAt;
             return (
-              <button key={s.startAt} onClick={() => set("slot", s)} className={`rounded-2xl border-2 py-3 font-semibold transition ${on ? "border-sea-600 bg-sea-600 text-white" : "border-sand-200 bg-white hover:border-sea-300"}`}>{s.time}</button>
+              <button key={s.startAt} onClick={() => set("slot", s)} className={`rounded-lg border-2 py-3 font-semibold transition ${on ? "border-sea-600 bg-sea-600 text-white" : "border-sand-200 bg-white hover:border-sea-300"}`}>{s.time}</button>
             );
           })}
         </div>
@@ -446,7 +455,7 @@ function StepContact({ f, set }: StepProps) {
         <span className="label">Preferred contact</span>
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
           {["whatsapp", "line", "phone", "email"].map((m) => (
-            <button key={m} type="button" onClick={() => set("preferred", m)} className={`rounded-2xl border-2 py-2.5 text-sm font-semibold capitalize ${f.preferred === m ? "border-sea-600 bg-sea-50" : "border-sand-200 bg-white"}`}>{m === "line" ? "LINE" : m}</button>
+            <button key={m} type="button" onClick={() => set("preferred", m)} className={`rounded-lg border-2 py-2.5 text-sm font-semibold capitalize ${f.preferred === m ? "border-sea-600 bg-sea-50" : "border-sand-200 bg-white"}`}>{m === "line" ? "LINE" : m}</button>
           ))}
         </div>
       </div>
@@ -537,10 +546,10 @@ function SummaryBody({ f, quote, isCustom, areaName, show }: { f: FormState; quo
           </ul>
           <div className="mt-4 flex items-end justify-between border-t border-dashed border-sand-200 pt-4">
             <span className="font-semibold">Total{f.frequency !== "one_time" ? " per clean" : ""}</span>
-            <span className="text-3xl font-semibold text-sea-800 tabular-nums">{formatTHB(quote.total)}</span>
+            <span className="tnum text-3xl font-extrabold">{formatTHB(quote.total)}</span>
           </div>
-          <div className="mt-4 flex items-center gap-2 rounded-2xl bg-sand-50 p-3 text-sm"><Clock size={16} className="text-sea-600" /> About <b>{formatDuration(quote.minutes)}</b></div>
-          {f.slot && <div className="mt-2 flex items-center gap-2 rounded-2xl bg-sand-50 p-3 text-sm"><CalendarDays size={16} className="text-sea-600" /> {new Date(f.slot.startAt).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", timeZone: "Asia/Bangkok" })} · {f.slot.time}</div>}
+          <div className="mt-4 flex items-center gap-2 rounded-lg bg-sand-50 p-3 text-sm"><Clock size={16} className="text-sea-600" /> About <b>{formatDuration(quote.minutes)}</b></div>
+          {f.slot && <div className="mt-2 flex items-center gap-2 rounded-lg bg-sand-50 p-3 text-sm"><CalendarDays size={16} className="text-sea-600" /> {new Date(f.slot.startAt).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", timeZone: "Asia/Bangkok" })}, {f.slot.time}</div>}
           {areaName && <p className="mt-3 text-xs text-ink/55">{areaName}</p>}
         </>
       )}
@@ -560,7 +569,7 @@ function Confirmation({ result, f, quote, areaName }: { result: BookingResult | 
         ) : (
           <>
             <p className="mt-3 text-ink/75">Booking reference <b className="text-sea-800">{result.ref}</b></p>
-            <div className="mt-6 grid gap-2 rounded-2xl bg-sand-50 p-5 text-left text-sm">
+            <div className="mt-6 grid gap-2 rounded-lg bg-sand-50 p-5 text-left text-sm">
               <Detail k="When" v={`${new Date(result.startAt).toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", timeZone: "Asia/Bangkok" })} at ${f.slot?.time}`} />
               <Detail k="Where" v={`${f.address}, ${areaName}`} />
               <Detail k="Price" v={formatTHB(result.total || quote.total)} />

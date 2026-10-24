@@ -1,19 +1,26 @@
 /** @type {import('tailwindcss').Config} */
+// Token names kept stable across the app: `sea` = lagoon teal scale, `sand` = cool mist greys,
+// `ink` = deep lagoon text, `sun` = price highlight, `coral` = small warning/discount accents.
 export default {
   content: ["./index.html", "./src/**/*.{ts,tsx}"],
   theme: {
     extend: {
       colors: {
-        sea: { 50: "#effcf9", 100: "#cdf5ec", 200: "#9debdb", 300: "#64d9c4", 400: "#31bfa9", 500: "#16a390", 600: "#0f8476", 700: "#0f6a60", 800: "#11544e", 900: "#123f3b", 950: "#062724" },
-        sand: { 50: "#fbf8f2", 100: "#f5eee0", 200: "#ebdcc0", 300: "#dfc597", 400: "#d2aa6c" },
-        ink: "#10302c",
-        coral: "#f0745a",
+        sea: { 50: "#EEF6F5", 100: "#D5ECE9", 200: "#A9D6D1", 300: "#76BBB5", 400: "#3E9A95", 500: "#167F80", 600: "#0A6C74", 700: "#0A5960", 800: "#0C474D", 900: "#0E2A2F", 950: "#08191C" },
+        sand: { 50: "#F6F8F8", 100: "#EEF3F2", 200: "#DCE5E3", 300: "#C2CFCC", 400: "#97A8A5" },
+        ink: "#0E2A2F",
+        sun: "#F2C14E",
+        coral: "#B4471F",
       },
       fontFamily: {
-        display: ['"Fraunces"', "Georgia", "serif"],
-        sans: ['"Plus Jakarta Sans"', "system-ui", "sans-serif"],
+        display: ['"Schibsted Grotesk"', "system-ui", "sans-serif"],
+        sans: ['"Schibsted Grotesk"', "system-ui", "sans-serif"],
       },
-      boxShadow: { soft: "0 10px 40px -12px rgba(16,48,44,.18)" },
+      fontSize: {
+        hero: ["clamp(2.6rem, 6vw, 4.6rem)", { lineHeight: "1.02", letterSpacing: "-0.035em" }],
+        price: ["clamp(3.4rem, 9vw, 5.6rem)", { lineHeight: "1", letterSpacing: "-0.04em" }],
+      },
+      boxShadow: { soft: "none" },
     },
   },
   plugins: [],
