@@ -1,0 +1,4 @@
+-- Applied to project tqeylnllbmptwzyelqkn on 2026-10-24.
+-- pg_cron job 'samui-care-reminders' (minute 5 of every hour) posts to ops?route=cron with x-cron-secret
+-- taken from private.secrets.cron_secret (generated inside the database). public.cron_secret_ok(text) checks it
+-- and is executable by service_role only. Role-check helpers are no longer executable by anon.

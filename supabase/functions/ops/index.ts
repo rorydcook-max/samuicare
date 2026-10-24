@@ -112,8 +112,10 @@ async function routeStripe(req: Request) {
 /* ---------------------------------- cron ---------------------------------- */
 
 async function routeCron(req: Request) {
-  const secret = env("CRON_SECRET");
-  if (!secret || req.headers.get("x-cron-secret") !== secret) return json({ error: "Not allowed" }, 401);
+  // The secret lives in private.secrets (created inside the database) and is sent by the pg_cron job.
+  const given = req.headers.get("x-cron-secret") ?? "";
+  const { data: ok } = given ? await db.rpc("cron_secret_ok", { s: given }) : { data: false };
+  if (!ok) return json({ error: "Not allowed" }, 401);
   const now = Date.now();
   const { data } = await db.from("bookings").select(JOB_SELECT)
     .gte("start_at", new Date(now + 20 * 3600000).toISOString()).lte("start_at", new Date(now + 28 * 3600000).toISOString())
@@ -127,7 +129,7 @@ async function routeCron(req: Request) {
       tasks.push(sendEmail(j.customers.email, `Reminder: Samui Care clean tomorrow, ${fmtWhen(j.start_at)}`,
         customerEmail("See you tomorrow", `Hi ${(j.customers.name ?? "").split(" ")[0]}, a reminder about your clean. Please make sure we can get in.`, j, b)));
     }
-    if (n.line_staff !== false && j.staff?.line_user_id) tasks.push(linePush(j.staff.line_user_id, `⏰ Tomorrow: ${j.ref}\n\n${jobText(j)}`));
+    if (n.line_staff !== false && j.staff?.line_user_id && env("LINE_CHANNEL_TOKEN")) tasks.push(linePush(j.staff.line_user_id, `⏰ Tomorrow: ${j.ref}\n\n${jobText(j)}`));
     await Promise.allSettled(tasks);
     if (tasks.length) { await db.from("bookings").update({ reminder_sent: true }).eq("id", j.id); sent++; }
   }
