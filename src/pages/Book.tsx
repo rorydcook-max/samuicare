@@ -164,8 +164,8 @@ export default function Book() {
           <div className="h-full rounded-full bg-sea-600 transition-all duration-500" style={{ width: `${progress}%` }} />
         </div>
 
-        <div className="mt-8 grid gap-8 lg:grid-cols-[1fr_320px]">
-          <div>
+        <div className="mt-8 grid grid-cols-1 gap-8 lg:grid-cols-[1fr_320px]">
+          <div className="min-w-0">
             <h1 className="text-3xl font-semibold text-sea-950 sm:text-4xl">{STEP_TITLES[step]}</h1>
             <div className="mt-6">
               {step === "type" && <StepType f={f} set={set} />}
