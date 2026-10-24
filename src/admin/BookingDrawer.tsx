@@ -21,6 +21,8 @@ export default function BookingDrawer({ id, onClose, onChanged }: { id: string |
   const [resched, setResched] = useState<{ date: string; time: string; staffId: string; duration: number } | null>(null);
   const [warning, setWarning] = useState<string | null>(null);
   const [notes, setNotes] = useState("");
+  const [tellCustomer, setTellCustomer] = useState(true);
+  const [sent, setSent] = useState<string | null>(null);
 
   const load = async () => {
     if (!id) return;
@@ -30,14 +32,25 @@ export default function BookingDrawer({ id, onClose, onChanged }: { id: string |
   };
   useEffect(() => { setB(null); setResched(null); setErr(null); setWarning(null); load(); }, [id]);
 
-  const update = async (patch: Partial<Booking>, scope: "one" | "future" = "one") => {
+  type Change = "rescheduled" | "reassigned" | "cancelled" | "restored";
+  /** Ask the server to message the team, cleaner(s) and optionally the customer, and sync the calendar. */
+  const announce = async (change: Change, prevStaffId: string | null) => {
     if (!b) return;
-    setBusy(true); setErr(null);
+    const prevStaffLineId = staff.find((s) => s.id === prevStaffId)?.line_user_id ?? null;
+    const { data, error } = await sb().functions.invoke("ops?route=admin", { body: { id: b.id, change, notifyCustomer: tellCustomer, prevStaffLineId } });
+    setSent(error ? "Saved, but the alerts didn't send." : data?.emailed ? "Saved. Team and customer notified." : "Saved. Team notified.");
+  };
+
+  const update = async (patch: Partial<Booking>, scope: "one" | "future" = "one", change?: Change) => {
+    if (!b) return;
+    setBusy(true); setErr(null); setSent(null);
+    const prevStaff = b.staff_id;
     let q = sb().from("bookings").update(patch);
     q = scope === "future" && b.series_id ? q.eq("series_id", b.series_id).gte("start_at", b.start_at) : q.eq("id", b.id);
     const { error } = await q;
     setBusy(false);
     if (error) return setErr(error.message);
+    if (change) await announce(change, prevStaff);
     await load();
     onChanged();
   };
@@ -66,7 +79,9 @@ export default function BookingDrawer({ id, onClose, onChanged }: { id: string |
       }
     }
     setWarning(null);
-    await update({ start_at: start.toISOString(), staff_id: resched.staffId || null, duration_min: resched.duration, conflict: false, status: resched.staffId ? (b.status === "booked" ? "assigned" : b.status) : "booked" });
+    const moved = start.toISOString() !== new Date(b.start_at).toISOString() || resched.duration !== b.duration_min;
+    const change: Change = moved ? "rescheduled" : "reassigned";
+    await update({ start_at: start.toISOString(), staff_id: resched.staffId || null, duration_min: resched.duration, conflict: false, status: resched.staffId ? (b.status === "booked" ? "assigned" : b.status) : "booked" }, "one", change);
     setResched(null);
   };
 
@@ -89,6 +104,8 @@ export default function BookingDrawer({ id, onClose, onChanged }: { id: string |
           </div>
 
           <Err e={err} />
+          {sent && <p className="rounded-lg bg-sea-50 p-3 text-sm text-sea-800" role="status">{sent}</p>}
+          <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={tellCustomer} onChange={(e) => setTellCustomer(e.target.checked)} /> Email the customer when I move or cancel this clean</label>
 
           {!resched ? (
             <div className="flex flex-wrap gap-2">
@@ -171,14 +188,14 @@ export default function BookingDrawer({ id, onClose, onChanged }: { id: string |
             <section className="border-t border-sand-200 pt-5">
               <div className="flex flex-wrap gap-2">
                 <button className="rounded-md border border-coral/50 px-3 py-2 text-sm font-semibold text-coral hover:bg-coral/5" disabled={busy}
-                  onClick={() => confirm("Cancel this booking?") && update({ status: "cancelled" })}>Cancel this clean</button>
+                  onClick={() => confirm("Cancel this booking?") && update({ status: "cancelled" }, "one", "cancelled")}>Cancel this clean</button>
                 {b.series_id && <button className="rounded-md border border-coral/50 px-3 py-2 text-sm font-semibold text-coral hover:bg-coral/5" disabled={busy}
-                  onClick={() => confirm("Cancel this and every later clean in the series?") && update({ status: "cancelled" }, "future")}>Cancel this and later cleans</button>}
+                  onClick={() => confirm("Cancel this and every later clean in the series?") && update({ status: "cancelled" }, "future", "cancelled")}>Cancel this and later cleans</button>}
                 <button className="rounded-md border border-sand-300 px-3 py-2 text-sm font-semibold" disabled={busy} onClick={() => setStatus("no_show")}>No-show</button>
               </div>
             </section>
           )}
-          {b.status === "cancelled" && <button className="btn-ghost !py-2" disabled={busy} onClick={() => setStatus(b.staff_id ? "assigned" : "booked")}>Restore booking</button>}
+          {b.status === "cancelled" && <button className="btn-ghost !py-2" disabled={busy} onClick={() => update({ status: b.staff_id ? "assigned" : "booked" }, "one", "restored")}>Restore booking</button>}
         </div>
       )}
     </Drawer>

@@ -147,6 +147,7 @@ export default function Book() {
           notes: f.notes,
           payment: f.payment,
           clientTotal: quote.total,
+          origin: window.location.origin,
         });
         if (res.checkoutUrl) { window.location.href = res.checkoutUrl; return; }
         setDone(res);
@@ -576,6 +577,7 @@ function Confirmation({ result, f, quote, areaName }: { result: BookingResult | 
               <Detail k="Payment" v={{ card: "Card", promptpay: "PromptPay", cash: "Cash on completion" }[f.payment]} />
               {result.series > 1 && <Detail k="Repeats" v={`${result.series} cleans reserved`} />}
             </div>
+            {f.payment !== "cash" && <p className="mt-4 rounded-lg bg-sun/40 p-3 text-sm">Online payment isn't switched on yet, so we'll message you a payment link before the clean. You can also pay your cleaner in cash.</p>}
             {f.email && <p className="mt-4 text-sm text-ink/60">A confirmation is on its way to {f.email}.</p>}
           </>
         )}

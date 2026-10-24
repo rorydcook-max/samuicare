@@ -90,3 +90,8 @@ export async function uploadPhoto(file: File): Promise<string | null> {
   });
   return r.ok ? path : null;
 }
+
+export interface BookingStatusInfo { ref: string; startAt: string; minutes: number; total: number; paymentMethod: string; paymentStatus: string; status: string }
+export async function getBookingStatus(ref: string): Promise<BookingStatusInfo> {
+  return call<BookingStatusInfo>("status", { ref });
+}

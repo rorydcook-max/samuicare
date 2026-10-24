@@ -3,10 +3,10 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { computeQuote, formatDuration, formatTHB, type AddonDef, type Anchor, type Condition, type Frequency, type PricingSettings } from "./pricing.ts";
+import { calendarUpsert, customerEmail, env, sendEmail, JOB_SELECT, jobText, notifyTeam, type JobRow, type NotifySettings } from "../_shared/notify.ts";
 import { availability, bangkokDate, bangkokTime, isStaffFree, pickLeastBusy, seriesDates, slotsForDate, type BusyJob, type SchedulingSettings, type StaffAvail } from "./slots.ts";
 
 const db = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, { auth: { persistSession: false } });
-const env = (k: string) => Deno.env.get(k) ?? "";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -52,7 +52,7 @@ async function loadConfig() {
     pricing: s.pricing as PricingSettings,
     scheduling: s.scheduling as SchedulingSettings,
     payout: (s.payout ?? { type: "percent", value: 40 }) as { type: string; value: number },
-    notifications: (s.notifications ?? {}) as Record<string, unknown>,
+    notifications: (s.notifications ?? {}) as NotifySettings,
     business: (s.business ?? {}) as Record<string, string>,
     anchors: (anchors.data ?? []) as Anchor[],
     addons: (addons.data ?? []) as AddonDef[],
@@ -67,38 +67,6 @@ async function busyJobs(fromIso: string, toIso: string): Promise<BusyJob[]> {
     .gte("start_at", new Date(new Date(fromIso).getTime() - 86400000).toISOString()).lte("start_at", toIso)
     .not("status", "in", "(cancelled,no_show)");
   return (data ?? []) as BusyJob[];
-}
-
-/* ---------------------------- notifications ------------------------------- */
-
-async function sendEmail(to: string, subject: string, html: string) {
-  const key = env("RESEND_API_KEY");
-  if (!key || !to) return;
-  await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ from: env("FROM_EMAIL") || "Samui Care <bookings@samuicare.com>", to: [to], subject, html }),
-  }).catch((e) => console.error("email", e));
-}
-async function linePush(to: string, text: string) {
-  const token = env("LINE_CHANNEL_TOKEN");
-  if (!token || !to) return;
-  await fetch("https://api.line.me/v2/bot/message/push", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ to, messages: [{ type: "text", text: text.slice(0, 4900) }] }),
-  }).catch((e) => console.error("line", e));
-}
-const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]!));
-
-async function notifyTeam(subject: string, text: string, cfg: Awaited<ReturnType<typeof loadConfig>>, staffLineId?: string | null) {
-  const n = cfg.notifications;
-  const teamEmail = (n.team_email as string) || env("TEAM_EMAIL");
-  await Promise.allSettled([
-    n.email_team !== false && teamEmail ? sendEmail(teamEmail, subject, `<pre style="font-family:Arial,sans-serif;white-space:pre-wrap">${esc(text)}</pre>`) : null,
-    n.line_team !== false ? linePush(env("LINE_GROUP_ID"), `${subject}\n\n${text}`) : null,
-    n.line_staff !== false && staffLineId ? linePush(staffLineId, `${subject}\n\n${text}`) : null,
-  ]);
 }
 
 /* -------------------------------- actions --------------------------------- */
@@ -164,7 +132,7 @@ async function actionRequest(body: Record<string, unknown>) {
   const lines = Object.entries(data ?? {})
     .filter(([k, v]) => v !== "" && v !== null && v !== false && !["leadId", "slot", "photos", "quote", "addons"].includes(k) && typeof v !== "object")
     .map(([k, v]) => `${k}: ${v}`);
-  await notifyTeam(`${title} — ${name}`, lines.join("\n"), cfg);
+  await notifyTeam(`${title} — ${name}`, lines.join("\n"), cfg.notifications);
   return { id };
 }
 
@@ -270,40 +238,72 @@ async function actionBook(body: Record<string, unknown>) {
   const firstBooking = created[0];
   if (leadId) await db.from("leads").update({ status: "won", booking_id: firstBooking.id, quoted_price: quote.total, updated_at: new Date().toISOString() }).eq("id", leadId);
 
-  // Notifications (each one quietly skips until its keys are added).
-  const when = `${start.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", timeZone: "Asia/Bangkok" })} at ${bangkokTime(start)}`;
-  const conflicts = rows.filter((r) => r.conflict).length;
-  const summary = [
-    `Ref: ${firstBooking.ref}`,
-    `When: ${when} (${formatDuration(quote.minutes)})`,
-    `Where: ${address}, ${area.name}`,
-    details.maps_link ? `Map: ${details.maps_link}` : "",
-    `Property: ${input.bedrooms} bed / ${input.bathrooms} bath ${prop.type ?? ""}, ${input.condition.replace("_", "-")}${input.kids ? ", kids" : ""}${input.pets ? ", pets" : ""}`,
-    addonNames.length ? `Add-ons: ${addonNames.join(", ")}` : "",
-    `Price: ${formatTHB(quote.total)} · ${{ card: "Card", promptpay: "PromptPay", cash: "Cash on completion" }[payment]}`,
-    input.frequency !== "one_time" ? `Repeats: ${input.frequency} (${rows.length} reserved${conflicts ? `, ⚠️ ${conflicts} need attention` : ""})` : "",
-    `Customer: ${name} · ${[contact.phone, contact.whatsapp && `WA ${contact.whatsapp}`, contact.lineId && `LINE ${contact.lineId}`, contact.email].filter(Boolean).join(" · ")}`,
-    details.access_notes ? `Access: ${details.access_notes}` : "",
-    str(body.notes, 1000) ? `Notes: ${str(body.notes, 1000)}` : "",
-    `Assigned: ${staff.name}`,
-  ].filter(Boolean).join("\n");
+  // Calendar events for every reserved clean (skips quietly until Google is connected).
+  const { data: jobsFull } = await db.from("bookings").select(JOB_SELECT).in("id", created.map((c) => c.id)).order("start_at");
+  const saved = (jobsFull ?? []) as unknown as JobRow[];
+  if (cfg.notifications.google_calendar !== false) {
+    for (const j of saved) {
+      const eventId = await calendarUpsert(j);
+      if (eventId && eventId !== j.gcal_event_id) await db.from("bookings").update({ gcal_event_id: eventId }).eq("id", j.id);
+    }
+  }
 
+  // Online payment: Stripe Checkout for the first clean. Without Stripe keys the booking stands as unpaid.
+  let checkoutUrl: string | null = null;
+  if (payment !== "cash" && env("STRIPE_SECRET_KEY")) {
+    checkoutUrl = await stripeCheckout(saved[0], payment, contact.email, str(body.origin, 200));
+  }
+
+  const first = saved[0];
+  const conflicts = rows.filter((r) => r.conflict).length;
+  const extra = input.frequency !== "one_time" ? `\nRepeats: ${input.frequency} (${rows.length} reserved${conflicts ? `, ⚠️ ${conflicts} need attention` : ""})` : "";
   const b = cfg.business;
   await Promise.allSettled([
-    notifyTeam(`🧽 New booking ${firstBooking.ref} — ${area.name}, ${when}`, summary, cfg, staff.line_user_id),
-    cfg.notifications.email_customer !== false && contact.email
-      ? sendEmail(contact.email, `Your Samui Care booking ${firstBooking.ref} — ${when}`,
-        `<div style="font-family:Arial,sans-serif;color:#10302c;max-width:560px">
-          <h2 style="color:#0f6a60">You're booked in ✨</h2>
-          <p>Hi ${esc(name.split(" ")[0])}, thanks for booking with Samui Care.</p>
-          <p><b>When:</b> ${esc(when)}<br><b>Estimated time:</b> ${formatDuration(quote.minutes)}<br><b>Where:</b> ${esc(address)}, ${esc(area.name)}<br>
-          <b>Price:</b> ${formatTHB(quote.total)} (${{ card: "card", promptpay: "PromptPay", cash: "cash on completion" }[payment]})<br><b>Reference:</b> ${firstBooking.ref}</p>
-          <p>Need to change something? Message us on LINE ${esc(b.line_id ?? "")}, WhatsApp ${esc(b.whatsapp ?? "")} or reply to this email.</p>
-          <p>— Samui Care</p></div>`)
+    notifyTeam(`🧽 New booking ${first.ref} — ${area.name}`, jobText(first) + extra, cfg.notifications, staff.line_user_id),
+    cfg.notifications.email_customer !== false && contact.email && !checkoutUrl
+      ? sendEmail(contact.email, `Your Samui Care booking ${first.ref}`, customerEmail("You're booked in", `Hi ${name.split(" ")[0]}, thanks for booking with Samui Care.`, first, b))
       : null,
   ]);
 
-  return { ref: firstBooking.ref, total: quote.total, minutes: quote.minutes, startAt: firstBooking.start_at, series: rows.length, conflicts, checkoutUrl: null };
+  return { ref: first.ref, total: quote.total, minutes: quote.minutes, startAt: first.start_at, series: rows.length, conflicts, checkoutUrl };
+}
+
+/** Create a Stripe Checkout session (card or PromptPay, THB) and remember it on the booking. */
+async function stripeCheckout(j: JobRow, method: "card" | "promptpay", email: string, origin: string): Promise<string | null> {
+  const site = /^https:\/\/[\w.-]+$/.test(origin) ? origin : env("SITE_URL") || "https://samui-care.netlify.app";
+  const p = new URLSearchParams();
+  p.set("mode", "payment");
+  p.append("payment_method_types[]", method);
+  p.set("line_items[0][quantity]", "1");
+  p.set("line_items[0][price_data][currency]", "thb");
+  p.set("line_items[0][price_data][unit_amount]", String(j.price * 100));
+  p.set("line_items[0][price_data][product_data][name]", `Cleaning ${j.ref}, ${fmtWhenShort(j.start_at)}`);
+  p.set("client_reference_id", j.id);
+  p.set("metadata[booking_id]", j.id);
+  p.set("metadata[ref]", j.ref);
+  if (email) p.set("customer_email", email);
+  p.set("success_url", `${site}/book/done?ref=${j.ref}&paid=1`);
+  p.set("cancel_url", `${site}/book/done?ref=${j.ref}&paid=0`);
+  const r = await fetch("https://api.stripe.com/v1/checkout/sessions", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${env("STRIPE_SECRET_KEY")}`, "Content-Type": "application/x-www-form-urlencoded" },
+    body: p,
+  });
+  if (!r.ok) { console.error("stripe", r.status, await r.text()); return null; }
+  const s = await r.json();
+  await db.from("bookings").update({ stripe_session_id: s.id }).eq("id", j.id);
+  return s.url as string;
+}
+
+const fmtWhenShort = (iso: string) => new Date(iso).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "Asia/Bangkok" });
+
+/** Minimal public status for the confirmation page. No personal details. */
+async function actionStatus(body: Record<string, unknown>) {
+  const ref = str(body.ref, 12).toUpperCase();
+  if (!/^[0-9A-F]{6}$/.test(ref)) throw new UserError("Unknown booking");
+  const { data } = await db.from("bookings").select("ref,start_at,duration_min,price,payment_method,payment_status,status").eq("ref", ref).maybeSingle();
+  if (!data) throw new UserError("Unknown booking");
+  return { ref: data.ref, startAt: data.start_at, minutes: data.duration_min, total: data.price, paymentMethod: data.payment_method, paymentStatus: data.payment_status, status: data.status };
 }
 
 /* --------------------------------- server --------------------------------- */
@@ -318,6 +318,7 @@ Deno.serve(async (req) => {
       case "lead": return json(await actionLead(body));
       case "request": return json(await actionRequest(body));
       case "book": return json(await actionBook(body));
+      case "status": return json(await actionStatus(body));
       default: return json({ error: "Unknown action" }, 400);
     }
   } catch (e) {
